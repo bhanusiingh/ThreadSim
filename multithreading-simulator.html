@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multithreading Simulator</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Orbitron:wght@400;700;900&display=swap');
+
+  :root {
+    --bg: #060910;
+    --surface: #0d1117;
+    --surface2: #161b22;
+    --border: #21262d;
+    --accent: #00d4ff;
+    --accent2: #7c3aed;
+    --green: #00ff88;
+    --yellow: #ffd700;
+    --red: #ff4560;
+    --orange: #ff8c00;
+    --gray: #6e7681;
+    --text: #e6edf3;
+    --text2: #8b949e;
+
+    --state-new: #4a9eff;
+    --state-ready: #ffd700;
+    --state-running: #00ff88;
+    --state-blocked: #ff4560;
+    --state-terminated: #6e7681;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: 
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app { position: relative; z-index: 1; }
+
+  /* Header */
+  header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: rgba(13,17,23,0.95);
+    backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-shadow: 0 0 20px rgba(0,212,255,0.5);
+  }
+
+  .logo span { color: var(--text2); font-weight: 400; }
+
+  .ticker {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 11px;
+    color: var(--text2);
+  }
+
+  .tick-val {
+    font-family: 'Orbitron', sans-serif;
+    color: var(--green);
+    font-size: 13px;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 1.5s infinite;
+    display: inline-block;
+    margin-right: 6px;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,255,136,0.4); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(0,255,136,0); }
+  }
+
+  /* Layout */
+  .main { display: grid; grid-template-columns: 260px 1fr 260px; gap: 0; height: calc(100vh - 65px); }
+
+  .panel {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px;
+  }
+
+  .panel:last-child { border-right: none; border-left: 1px solid var(--border); }
+
+  .panel-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--text2);
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    text-transform: uppercase;
+  }
+
+  /* Center area */
+  .center { overflow-y: auto; padding: 16px; }
+
+  /* Model selector */
+  .model-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+
+  .model-tab {
+    flex: 1;
+    padding: 8px 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text2);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+    letter-spacing: 0.5px;
+  }
+
+  .model-tab:hover { border-color: var(--accent); color: var(--accent); }
+  .model-tab.active {
+    background: rgba(0,212,255,0.1);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 12px rgba(0,212,255,0.2);
+  }
+
+  /* Thread cards */
+  .thread-grid { display: flex; flex-direction: column; gap: 8px; }
+
+  .thread-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .thread-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    border-radius: 8px 0 0 8px;
+    transition: background 0.3s;
+  }
+
+  .thread-card.state-NEW::before { background: var(--state-new); }
+  .thread-card.state-READY::before { background: var(--state-ready); }
+  .thread-card.state-RUNNING::before { background: var(--state-running); box-shadow: 0 0 8px var(--state-running); }
+  .thread-card.state-BLOCKED::before { background: var(--state-blocked); }
+  .thread-card.state-TERMINATED::before { background: var(--state-terminated); }
+
+  .thread-card.state-RUNNING {
+    border-color: rgba(0,255,136,0.3);
+    background: rgba(0,255,136,0.05);
+  }
+
+  .thread-card.state-BLOCKED {
+    border-color: rgba(255,69,96,0.2);
+    opacity: 0.8;
+  }
+
+  .thread-card.state-TERMINATED { opacity: 0.4; }
+
+  .thread-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
+  .thread-id {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .thread-state-badge {
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+
+  .badge-NEW { background: rgba(74,158,255,0.2); color: var(--state-new); }
+  .badge-READY { background: rgba(255,215,0,0.15); color: var(--state-ready); }
+  .badge-RUNNING { background: rgba(0,255,136,0.15); color: var(--state-running); }
+  .badge-BLOCKED { background: rgba(255,69,96,0.15); color: var(--state-blocked); }
+  .badge-TERMINATED { background: rgba(110,118,129,0.15); color: var(--state-terminated); }
+
+  .thread-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--text2);
+  }
+
+  .thread-info span { display: flex; align-items: center; gap: 4px; }
+
+  .progress-bar {
+    height: 2px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-top: 8px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--green));
+    border-radius: 2px;
+    transition: width 0.5s ease;
+  }
+
+  /* CPU Visualization */
+  .cpu-section { margin-bottom: 20px; }
+
+  .cpu-section-title {
+    font-size: 11px;
+    color: var(--text2);
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+
+  .kernel-threads {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+
+  .kernel-thread {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    min-width: 100px;
+    text-align: center;
+    position: relative;
+    transition: all 0.3s;
+  }
+
+  .kernel-thread.active {
+    border-color: var(--accent2);
+    background: rgba(124,58,237,0.1);
+    box-shadow: 0 0 12px rgba(124,58,237,0.3);
+  }
+
+  .kt-label {
+    font-size: 9px;
+    color: var(--text2);
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+
+  .kt-id {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 12px;
+    color: var(--accent2);
+    font-weight: 700;
+  }
+
+  .kt-mapped {
+    font-size: 10px;
+    color: var(--accent);
+    margin-top: 4px;
+    min-height: 14px;
+  }
+
+  /* Model diagram */
+  .model-diagram {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+
+  .diagram-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+  }
+
+  .diagram-label {
+    font-size: 10px;
+    color: var(--text2);
+    width: 70px;
+    letter-spacing: 1px;
+  }
+
+  .diagram-nodes {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+  }
+
+  .d-node {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    transition: all 0.3s;
+  }
+
+  .d-user { background: rgba(0,212,255,0.15); border: 1px solid var(--accent); color: var(--accent); }
+  .d-kernel { background: rgba(124,58,237,0.15); border: 1px solid var(--accent2); color: var(--accent2); }
+  .d-node.active { box-shadow: 0 0 10px currentColor; }
+
+  .diagram-line {
+    font-size: 10px;
+    color: var(--green);
+  }
+
+  /* Sync panel */
+  .sync-section { margin-bottom: 16px; }
+
+  .sync-title {
+    font-size: 11px;
+    color: var(--text2);
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+
+  .semaphore-card, .monitor-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+  }
+
+  .sem-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .sem-name { font-size: 11px; font-weight: 700; color: var(--yellow); }
+  .sem-count {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--green);
+    transition: color 0.3s;
+  }
+  .sem-count.zero { color: var(--red); }
+
+  .sem-queue-label { font-size: 10px; color: var(--text2); margin-bottom: 4px; }
+  .sem-queue {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    min-height: 22px;
+  }
+
+  .queue-item {
+    background: rgba(255,69,96,0.15);
+    border: 1px solid rgba(255,69,96,0.3);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 10px;
+    color: var(--red);
+    animation: fadeIn 0.3s ease;
+  }
+
+  @keyframes fadeIn { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+
+  /* Controls */
+  .controls-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .btn {
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+
+  .btn-primary {
+    background: rgba(0,212,255,0.1);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .btn-primary:hover {
+    background: rgba(0,212,255,0.2);
+    box-shadow: 0 0 12px rgba(0,212,255,0.3);
+  }
+
+  .btn-danger {
+    background: rgba(255,69,96,0.1);
+    border-color: var(--red);
+    color: var(--red);
+  }
+  .btn-danger:hover { background: rgba(255,69,96,0.2); }
+
+  .btn-warning {
+    background: rgba(255,215,0,0.1);
+    border-color: var(--yellow);
+    color: var(--yellow);
+  }
+  .btn-warning:hover { background: rgba(255,215,0,0.2); }
+
+  .btn-green {
+    background: rgba(0,255,136,0.1);
+    border-color: var(--green);
+    color: var(--green);
+  }
+  .btn-green:hover { background: rgba(0,255,136,0.2); }
+
+  .btn-purple {
+    background: rgba(124,58,237,0.1);
+    border-color: var(--accent2);
+    color: var(--accent2);
+  }
+  .btn-purple:hover { background: rgba(124,58,237,0.2); }
+
+  /* Log */
+  .log-area {
+    background: #010409;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    height: 200px;
+    overflow-y: auto;
+    font-size: 10px;
+    line-height: 1.7;
+  }
+
+  .log-entry { display: flex; gap: 8px; align-items: baseline; }
+  .log-time { color: var(--gray); flex-shrink: 0; }
+  .log-msg { color: var(--text2); }
+  .log-msg.info { color: var(--accent); }
+  .log-msg.success { color: var(--green); }
+  .log-msg.warn { color: var(--yellow); }
+  .log-msg.error { color: var(--red); }
+
+  /* Stats */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .stat-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    text-align: center;
+  }
+
+  .stat-val {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    display: block;
+  }
+
+  .stat-label { font-size: 9px; color: var(--text2); letter-spacing: 1px; margin-top: 2px; }
+
+  /* Timeline */
+  .timeline {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+
+  .timeline-label { font-size: 10px; color: var(--text2); margin-bottom: 8px; letter-spacing: 1px; }
+
+  .timeline-track {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 0;
+    font-size: 10px;
+  }
+
+  .track-id { width: 40px; color: var(--accent); flex-shrink: 0; }
+
+  .track-cells {
+    display: flex;
+    gap: 2px;
+    flex: 1;
+  }
+
+  .track-cell {
+    width: 14px;
+    height: 14px;
+    border-radius: 2px;
+    background: var(--border);
+    transition: background 0.2s;
+  }
+
+  .track-cell.running { background: var(--green); }
+  .track-cell.blocked { background: var(--red); opacity: 0.6; }
+  .track-cell.ready { background: var(--yellow); opacity: 0.5; }
+  .track-cell.new { background: var(--state-new); opacity: 0.4; }
+
+  .deadlock-warning {
+    background: rgba(255,69,96,0.1);
+    border: 1px solid var(--red);
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 11px;
+    color: var(--red);
+    display: none;
+    animation: flashRed 1s infinite;
+  }
+
+  @keyframes flashRed {
+    0%, 100% { border-color: var(--red); }
+    50% { border-color: rgba(255,69,96,0.3); }
+  }
+
+  .deadlock-warning.visible { display: block; }
+
+  .section-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 14px 0;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--gray); }
+
+  .speed-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    color: var(--text2);
+    margin-bottom: 8px;
+  }
+
+  .speed-control input {
+    flex: 1;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .no-threads {
+    text-align: center;
+    color: var(--text2);
+    font-size: 11px;
+    padding: 30px 10px;
+    letter-spacing: 1px;
+  }
+
+  .chip {
+    display: inline-flex; align-items: center;
+    background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.2);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 10px;
+    color: var(--accent);
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+<header>
+  <div class="logo">THREAD<span>SIM</span></div>
+  <div style="font-size:10px;color:var(--text2);letter-spacing:1px;">MULTITHREADING MODEL SIMULATOR</div>
+  <div class="ticker">
+    <span><span class="status-dot"></span>LIVE</span>
+    <span>TICK <span class="tick-val" id="tickDisplay">0</span></span>
+    <span>CPU <span class="tick-val" id="cpuUtil">0%</span></span>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- LEFT: Thread List -->
+  <div class="panel">
+    <div class="panel-title">User Threads</div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-val" id="totalThreads">0</span>
+        <div class="stat-label">TOTAL</div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-val" id="activeThreads">0</span>
+        <div class="stat-label">ACTIVE</div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-val" id="runningCount">0</span>
+        <div class="stat-label">RUNNING</div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-val" id="blockedCount">0</span>
+        <div class="stat-label">BLOCKED</div>
+      </div>
+    </div>
+
+    <div id="deadlockWarning" class="deadlock-warning">
+      ⚠ DEADLOCK DETECTED — circular wait on resources!
+    </div>
+
+    <hr class="section-divider">
+    <div id="threadList" class="thread-grid">
+      <div class="no-threads">No threads yet.<br>Add threads to begin →</div>
+    </div>
+  </div>
+
+  <!-- CENTER: Main visualization -->
+  <div class="center">
+
+    <!-- Model Tabs -->
+    <div class="model-tabs">
+      <button class="model-tab active" onclick="setModel('many-to-one')">Many-to-One</button>
+      <button class="model-tab" onclick="setModel('one-to-one')">One-to-One</button>
+      <button class="model-tab" onclick="setModel('many-to-many')">Many-to-Many</button>
+    </div>
+
+    <!-- Model Diagram -->
+    <div class="model-diagram" id="modelDiagram"></div>
+
+    <!-- CPU / Kernel Threads -->
+    <div class="cpu-section">
+      <div class="cpu-section-title">Kernel Threads / CPU</div>
+      <div class="kernel-threads" id="kernelThreads"></div>
+    </div>
+
+    <!-- Timeline -->
+    <div class="timeline">
+      <div class="timeline-label">THREAD STATE TIMELINE (last 20 ticks)</div>
+      <div id="timelineArea"></div>
+    </div>
+
+    <!-- Log -->
+    <div class="panel-title" style="margin-top:16px;">System Log</div>
+    <div class="log-area" id="logArea"></div>
+
+  </div>
+
+  <!-- RIGHT: Controls + Sync -->
+  <div class="panel">
+    <div class="panel-title">Controls</div>
+
+    <div class="controls-row">
+      <button class="btn btn-primary" onclick="addThread()">+ Add Thread</button>
+      <button class="btn btn-danger" onclick="killRandomThread()">✕ Kill Thread</button>
+      <button class="btn btn-warning" onclick="blockRandomThread()">⏸ Block Thread</button>
+      <button class="btn btn-green" onclick="unblockAll()">▶ Unblock All</button>
+      <button class="btn btn-purple" onclick="triggerDeadlock()">☠ Simulate Deadlock</button>
+    </div>
+
+    <div class="speed-control">
+      <span>Speed:</span>
+      <input type="range" min="1" max="5" value="2" id="speedSlider" onchange="setSpeed(this.value)">
+      <span id="speedLabel">2x</span>
+    </div>
+
+    <button class="btn btn-primary" onclick="togglePause()" id="pauseBtn" style="width:100%">⏸ Pause</button>
+
+    <hr class="section-divider">
+    <div class="panel-title">Synchronization</div>
+
+    <!-- Semaphore -->
+    <div class="sync-section">
+      <div class="sync-title">Semaphores</div>
+
+      <div class="semaphore-card">
+        <div class="sem-header">
+          <span class="sem-name">sem_resource_A</span>
+          <span class="sem-count" id="semACount">2</span>
+        </div>
+        <div style="font-size:10px;color:var(--text2);margin-bottom:6px;">Max permits: 2</div>
+        <div class="sem-queue-label">WAITING QUEUE</div>
+        <div class="sem-queue" id="semAQueue"></div>
+        <div style="margin-top:8px;display:flex;gap:6px;">
+          <button class="btn btn-green" style="flex:1;padding:5px;" onclick="semAcquire('A')">acquire()</button>
+          <button class="btn btn-warning" style="flex:1;padding:5px;" onclick="semRelease('A')">release()</button>
+        </div>
+      </div>
+
+      <div class="semaphore-card">
+        <div class="sem-header">
+          <span class="sem-name">sem_resource_B</span>
+          <span class="sem-count" id="semBCount">1</span>
+        </div>
+        <div style="font-size:10px;color:var(--text2);margin-bottom:6px;">Max permits: 1 (mutex)</div>
+        <div class="sem-queue-label">WAITING QUEUE</div>
+        <div class="sem-queue" id="semBQueue"></div>
+        <div style="margin-top:8px;display:flex;gap:6px;">
+          <button class="btn btn-green" style="flex:1;padding:5px;" onclick="semAcquire('B')">acquire()</button>
+          <button class="btn btn-warning" style="flex:1;padding:5px;" onclick="semRelease('B')">release()</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Monitor -->
+    <div class="sync-section">
+      <div class="sync-title">Monitor</div>
+      <div class="monitor-card">
+        <div class="sem-header">
+          <span class="sem-name">monitor_shared</span>
+          <span style="font-size:10px;color:var(--text2);" id="monitorStatus">UNLOCKED</span>
+        </div>
+        <div class="sem-queue-label">LOCK HOLDER</div>
+        <div id="monitorHolder" style="font-size:11px;color:var(--green);min-height:16px;margin-bottom:8px;"></div>
+        <div class="sem-queue-label">WAIT SET</div>
+        <div class="sem-queue" id="monitorWaitSet"></div>
+        <div style="margin-top:8px;display:flex;gap:6px;">
+          <button class="btn btn-primary" style="flex:1;padding:5px;" onclick="monitorEnter()">enter()</button>
+          <button class="btn btn-warning" style="flex:1;padding:5px;" onclick="monitorExit()">exit()</button>
+          <button class="btn btn-purple" style="flex:1;padding:5px;" onclick="monitorNotify()">notify()</button>
+        </div>
+      </div>
+    </div>
+
+    <hr class="section-divider">
+    <div class="panel-title" style="font-size:9px;">Legend</div>
+    <div>
+      <div class="chip" style="background:rgba(74,158,255,0.1);border-color:rgba(74,158,255,0.3);color:var(--state-new);">NEW</div>
+      <div class="chip" style="background:rgba(255,215,0,0.1);border-color:rgba(255,215,0,0.3);color:var(--state-ready);">READY</div>
+      <div class="chip" style="background:rgba(0,255,136,0.1);border-color:rgba(0,255,136,0.3);color:var(--state-running);">RUNNING</div>
+      <div class="chip" style="background:rgba(255,69,96,0.1);border-color:rgba(255,69,96,0.3);color:var(--state-blocked);">BLOCKED</div>
+      <div class="chip" style="background:rgba(110,118,129,0.1);border-color:rgba(110,118,129,0.3);color:var(--state-terminated);">TERMINATED</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+// ===== CORE ENGINE =====
+
+const STATES = { NEW:'NEW', READY:'READY', RUNNING:'RUNNING', BLOCKED:'BLOCKED', TERMINATED:'TERMINATED' };
+let threadCounter = 0;
+let tick = 0;
+let paused = false;
+let speed = 2;
+let simulationInterval = null;
+
+const threads = [];
+const timeline = {}; // threadId -> array of states (last 20)
+
+// Semaphores
+const semaphores = {
+  A: { name:'sem_resource_A', count:2, max:2, queue:[] },
+  B: { name:'sem_resource_B', count:1, max:1, queue:[] }
+};
+
+// Monitor
+const monitor = { locked:false, holder:null, waitSet:[] };
+
+// Current model
+let currentModel = 'many-to-one';
+
+// Kernel threads
+let kernelThreads = [];
+
+// ===== THREADING MODELS =====
+
+function setupModel(model) {
+  switch(model) {
+    case 'many-to-one':
+      kernelThreads = [{ id:'KT-0', mapped:null }];
+      break;
+    case 'one-to-one':
+      // Will grow dynamically
+      kernelThreads = [];
+      break;
+    case 'many-to-many':
+      kernelThreads = [
+        { id:'KT-0', mapped:null },
+        { id:'KT-1', mapped:null },
+        { id:'KT-2', mapped:null }
+      ];
+      break;
+  }
+}
+
+function setModel(model) {
+  currentModel = model;
+  document.querySelectorAll('.model-tab').forEach((t,i) => {
+    t.classList.toggle('active', ['many-to-one','one-to-one','many-to-many'][i] === model);
+  });
+  setupModel(model);
+  log(`Switched to ${model} model`, 'info');
+  renderModelDiagram();
+  renderKernelThreads();
+}
+
+// ===== THREAD CLASS =====
+
+function createThread() {
+  const priorities = ['LOW','MEDIUM','HIGH'];
+  const burstTimes = [5, 8, 12, 15, 20];
+  const t = {
+    id: `T-${threadCounter++}`,
+    state: STATES.NEW,
+    priority: priorities[Math.floor(Math.random()*3)],
+    burstTotal: burstTimes[Math.floor(Math.random()*burstTimes.length)],
+    burstDone: 0,
+    waitTime: 0,
+    tickCreated: tick,
+    kernelThread: null,
+    semaphoreWaiting: null,
+    monitorWaiting: false,
+  };
+  return t;
+}
+
+function addThread() {
+  const t = createThread();
+  threads.push(t);
+  timeline[t.id] = [];
+
+  // One-to-One: create a kernel thread for each user thread
+  if(currentModel === 'one-to-one') {
+    const kt = { id:`KT-${kernelThreads.length}`, mapped: t.id };
+    kernelThreads.push(kt);
+    t.kernelThread = kt.id;
+  }
+
+  log(`Created ${t.id} [priority=${t.priority}, burst=${t.burstTotal}]`, 'success');
+  setTimeout(() => { t.state = STATES.READY; renderAll(); }, 400);
+  renderAll();
+}
+
+function killRandomThread() {
+  const active = threads.filter(t => t.state !== STATES.TERMINATED);
+  if(!active.length) { log('No active threads to kill', 'warn'); return; }
+  const t = active[Math.floor(Math.random() * active.length)];
+  terminateThread(t);
+}
+
+function terminateThread(t) {
+  t.state = STATES.TERMINATED;
+  t.kernelThread = null;
+  // Remove from semaphore queues
+  Object.values(semaphores).forEach(s => {
+    s.queue = s.queue.filter(id => id !== t.id);
+  });
+  // Release monitor
+  if(monitor.holder === t.id) { monitor.locked = false; monitor.holder = null; }
+  monitor.waitSet = monitor.waitSet.filter(id => id !== t.id);
+  log(`Terminated ${t.id}`, 'error');
+  renderAll();
+}
+
+function blockRandomThread() {
+  const running = threads.filter(t => t.state === STATES.RUNNING || t.state === STATES.READY);
+  if(!running.length) { log('No running/ready threads to block', 'warn'); return; }
+  const t = running[Math.floor(Math.random() * running.length)];
+  t.state = STATES.BLOCKED;
+  log(`Blocked ${t.id} (waiting for I/O)`, 'warn');
+  renderAll();
+}
+
+function unblockAll() {
+  const blocked = threads.filter(t => t.state === STATES.BLOCKED && !t.semaphoreWaiting && !t.monitorWaiting);
+  blocked.forEach(t => { t.state = STATES.READY; });
+  if(blocked.length) log(`Unblocked ${blocked.length} thread(s)`, 'success');
+  else log('No unblocked threads', 'warn');
+  renderAll();
+}
+
+// ===== DEADLOCK SIMULATION =====
+let deadlockActive = false;
+
+function triggerDeadlock() {
+  if(threads.filter(t => t.state !== STATES.TERMINATED).length < 2) {
+    log('Need at least 2 active threads for deadlock demo', 'warn');
+    return;
+  }
+  const active = threads.filter(t => t.state !== STATES.TERMINATED);
+  // T1 holds A, waits for B; T2 holds B, waits for A
+  const t1 = active[0], t2 = active[1];
+  t1.state = STATES.BLOCKED; t1.semaphoreWaiting = 'B';
+  t2.state = STATES.BLOCKED; t2.semaphoreWaiting = 'A';
+  semaphores.A.queue.push(t2.id);
+  semaphores.B.queue.push(t1.id);
+  semaphores.A.count = 0;
+  semaphores.B.count = 0;
+  deadlockActive = true;
+  log(`DEADLOCK: ${t1.id} holds A, waits B. ${t2.id} holds B, waits A.`, 'error');
+  document.getElementById('deadlockWarning').classList.add('visible');
+  renderAll();
+}
+
+// ===== SEMAPHORE OPS =====
+function semAcquire(key) {
+  const sem = semaphores[key];
+  const ready = threads.filter(t => t.state === STATES.RUNNING || t.state === STATES.READY);
+  if(!ready.length) { log(`No ready thread to acquire ${sem.name}`, 'warn'); return; }
+  const t = ready[Math.floor(Math.random()*ready.length)];
+  if(sem.count > 0) {
+    sem.count--;
+    log(`${t.id} acquired ${sem.name} [permits left: ${sem.count}]`, 'success');
+  } else {
+    t.state = STATES.BLOCKED;
+    t.semaphoreWaiting = key;
+    sem.queue.push(t.id);
+    log(`${t.id} BLOCKED waiting on ${sem.name} (count=0)`, 'warn');
+  }
+  renderAll();
+}
+
+function semRelease(key) {
+  const sem = semaphores[key];
+  if(sem.queue.length > 0) {
+    const tid = sem.queue.shift();
+    const t = threads.find(t => t.id === tid);
+    if(t) {
+      t.state = STATES.READY;
+      t.semaphoreWaiting = null;
+      log(`${t.id} unblocked from ${sem.name} [acquired permit]`, 'success');
+    }
+  } else {
+    if(sem.count < sem.max) sem.count++;
+    log(`Released ${sem.name} [permits: ${sem.count}]`, 'info');
+  }
+  renderAll();
+}
+
+// ===== MONITOR OPS =====
+function monitorEnter() {
+  const ready = threads.filter(t => t.state === STATES.RUNNING || t.state === STATES.READY);
+  if(!ready.length) { log('No ready thread for monitor.enter()', 'warn'); return; }
+  const t = ready[Math.floor(Math.random()*ready.length)];
+  if(!monitor.locked) {
+    monitor.locked = true; monitor.holder = t.id;
+    log(`${t.id} entered monitor [LOCKED]`, 'success');
+  } else {
+    t.state = STATES.BLOCKED; t.monitorWaiting = true;
+    monitor.waitSet.push(t.id);
+    log(`${t.id} waiting on monitor (held by ${monitor.holder})`, 'warn');
+  }
+  renderAll();
+}
+
+function monitorExit() {
+  if(!monitor.holder) { log('Monitor not locked', 'warn'); return; }
+  log(`${monitor.holder} exited monitor`, 'info');
+  monitor.locked = false; monitor.holder = null;
+  renderAll();
+}
+
+function monitorNotify() {
+  if(monitor.waitSet.length === 0) { log('No threads in monitor wait set', 'warn'); return; }
+  const tid = monitor.waitSet.shift();
+  const t = threads.find(t => t.id === tid);
+  if(t) { t.state = STATES.READY; t.monitorWaiting = false; }
+  log(`Notified ${tid} — moved to READY`, 'success');
+  renderAll();
+}
+
+// ===== SCHEDULER =====
+const TIME_QUANTUM = 3;
+let quantumCounters = {};
+
+function schedulerTick() {
+  if(paused) return;
+  tick++;
+
+  // Update timeline
+  threads.forEach(t => {
+    if(!timeline[t.id]) timeline[t.id] = [];
+    timeline[t.id].push(t.state);
+    if(timeline[t.id].length > 20) timeline[t.id].shift();
+  });
+
+  const ready = threads.filter(t => t.state === STATES.READY);
+  const running = threads.filter(t => t.state === STATES.RUNNING);
+
+  // Determine max concurrent based on model
+  let maxRunning = 1;
+  if(currentModel === 'one-to-one') maxRunning = Math.max(kernelThreads.length, 1);
+  if(currentModel === 'many-to-many') maxRunning = kernelThreads.length;
+
+  // Round-robin scheduling
+  running.forEach(t => {
+    if(!quantumCounters[t.id]) quantumCounters[t.id] = 0;
+    quantumCounters[t.id]++;
+    t.burstDone++;
+
+    if(t.burstDone >= t.burstTotal) {
+      terminateThread(t);
+    } else if(quantumCounters[t.id] >= TIME_QUANTUM) {
+      t.state = STATES.READY;
+      quantumCounters[t.id] = 0;
+    }
+  });
+
+  // Promote ready threads
+  const nowRunning = threads.filter(t => t.state === STATES.RUNNING).length;
+  const slots = maxRunning - nowRunning;
+  const toPromote = ready.slice(0, Math.max(0, slots));
+  toPromote.forEach(t => {
+    t.state = STATES.RUNNING;
+    quantumCounters[t.id] = 0;
+  });
+
+  // Update wait time for blocked
+  threads.filter(t => t.state === STATES.BLOCKED || t.state === STATES.READY).forEach(t => {
+    t.waitTime++;
+  });
+
+  // Map kernel threads
+  updateKernelMapping();
+  renderAll();
+}
+
+function updateKernelMapping() {
+  const running = threads.filter(t => t.state === STATES.RUNNING);
+  if(currentModel === 'many-to-one') {
+    kernelThreads[0].mapped = running.length ? running.map(t=>t.id).join(',') : null;
+  } else if(currentModel === 'one-to-one') {
+    kernelThreads.forEach(kt => {
+      const t = threads.find(t => t.id === kt.mapped && t.state === STATES.RUNNING);
+      if(!t) kt.active = false; else kt.active = true;
+    });
+  } else { // many-to-many
+    kernelThreads.forEach((kt, i) => {
+      kt.mapped = running[i] ? running[i].id : null;
+    });
+  }
+}
+
+// ===== RENDERING =====
+
+function renderAll() {
+  renderThreadList();
+  renderKernelThreads();
+  renderSemaphores();
+  renderMonitor();
+  renderStats();
+  renderTimeline();
+  renderModelDiagram();
+  document.getElementById('tickDisplay').textContent = tick;
+
+  const running = threads.filter(t => t.state === STATES.RUNNING).length;
+  const active = threads.filter(t => t.state !== STATES.TERMINATED).length;
+  const cpu = active > 0 ? Math.round((running / Math.max(active, 1)) * 100) : 0;
+  document.getElementById('cpuUtil').textContent = `${cpu}%`;
+}
+
+function renderThreadList() {
+  const list = document.getElementById('threadList');
+  const active = threads.filter(t => t.state !== STATES.TERMINATED || threads.length < 8);
+
+  if(threads.length === 0) {
+    list.innerHTML = '<div class="no-threads">No threads yet.<br>Add threads to begin →</div>';
+    return;
+  }
+
+  list.innerHTML = threads.slice(-12).map(t => {
+    const pct = t.burstTotal > 0 ? Math.round((t.burstDone/t.burstTotal)*100) : 0;
+    return `
+    <div class="thread-card state-${t.state}">
+      <div class="thread-header">
+        <span class="thread-id">${t.id}</span>
+        <span class="thread-state-badge badge-${t.state}">${t.state}</span>
+      </div>
+      <div class="thread-info">
+        <span>⚡ ${t.priority}</span>
+        <span>⏱ ${t.burstDone}/${t.burstTotal}</span>
+        <span>⌛ wait:${t.waitTime}</span>
+        <span>${t.kernelThread ? '🔗 '+t.kernelThread : t.semaphoreWaiting ? '🔒 sem'+t.semaphoreWaiting : ''}</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" style="width:${pct}%"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderKernelThreads() {
+  const container = document.getElementById('kernelThreads');
+  container.innerHTML = kernelThreads.map(kt => {
+    const active = kt.mapped;
+    return `
+    <div class="kernel-thread ${active ? 'active' : ''}">
+      <div class="kt-label">KERNEL THREAD</div>
+      <div class="kt-id">${kt.id}</div>
+      <div class="kt-mapped">${active ? '→ ' + kt.mapped : 'idle'}</div>
+    </div>`;
+  }).join('') || '<div style="color:var(--text2);font-size:11px;">No kernel threads</div>';
+}
+
+function renderSemaphores() {
+  ['A','B'].forEach(key => {
+    const sem = semaphores[key];
+    const el = document.getElementById(`sem${key}Count`);
+    el.textContent = sem.count;
+    el.classList.toggle('zero', sem.count === 0);
+
+    const qEl = document.getElementById(`sem${key}Queue`);
+    qEl.innerHTML = sem.queue.length
+      ? sem.queue.map(id => `<span class="queue-item">${id}</span>`).join('')
+      : '<span style="font-size:10px;color:var(--text2)">empty</span>';
+  });
+}
+
+function renderMonitor() {
+  document.getElementById('monitorStatus').textContent = monitor.locked ? 'LOCKED' : 'UNLOCKED';
+  document.getElementById('monitorStatus').style.color = monitor.locked ? 'var(--red)' : 'var(--green)';
+  document.getElementById('monitorHolder').textContent = monitor.holder || '—';
+  const ws = document.getElementById('monitorWaitSet');
+  ws.innerHTML = monitor.waitSet.length
+    ? monitor.waitSet.map(id => `<span class="queue-item">${id}</span>`).join('')
+    : '<span style="font-size:10px;color:var(--text2)">empty</span>';
+}
+
+function renderStats() {
+  const total = threads.length;
+  const active = threads.filter(t => t.state !== STATES.TERMINATED).length;
+  const running = threads.filter(t => t.state === STATES.RUNNING).length;
+  const blocked = threads.filter(t => t.state === STATES.BLOCKED).length;
+  document.getElementById('totalThreads').textContent = total;
+  document.getElementById('activeThreads').textContent = active;
+  document.getElementById('runningCount').textContent = running;
+  document.getElementById('blockedCount').textContent = blocked;
+
+  if(deadlockActive) {
+    const stillBlocked = threads.filter(t => t.semaphoreWaiting).length;
+    if(stillBlocked < 2) {
+      deadlockActive = false;
+      document.getElementById('deadlockWarning').classList.remove('visible');
+    }
+  }
+}
+
+function renderTimeline() {
+  const area = document.getElementById('timelineArea');
+  const activeTids = threads.filter(t => timeline[t.id] && timeline[t.id].length > 0).slice(-6);
+
+  area.innerHTML = activeTids.map(t => {
+    const history = timeline[t.id] || [];
+    const cells = Array(20).fill('').map((_, i) => {
+      const state = history[i] || '';
+      const cls = state === STATES.RUNNING ? 'running'
+                : state === STATES.BLOCKED ? 'blocked'
+                : state === STATES.READY ? 'ready'
+                : state === STATES.NEW ? 'new' : '';
+      return `<div class="track-cell ${cls}" title="${state}"></div>`;
+    }).join('');
+    return `<div class="timeline-track">
+      <span class="track-id">${t.id}</span>
+      <div class="track-cells">${cells}</div>
+    </div>`;
+  }).join('') || '<div style="font-size:10px;color:var(--text2)">No thread history yet</div>';
+}
+
+function renderModelDiagram() {
+  const el = document.getElementById('modelDiagram');
+  const active = threads.filter(t => t.state !== STATES.TERMINATED).slice(0, 5);
+
+  let html = '';
+
+  if(currentModel === 'many-to-one') {
+    html = `
+    <div style="font-size:11px;color:var(--text2);margin-bottom:10px;letter-spacing:1px;">MANY USER THREADS → ONE KERNEL THREAD</div>
+    <div class="diagram-row">
+      <span class="diagram-label">USER</span>
+      <div class="diagram-nodes">${active.map(t => `<div class="d-node d-user ${t.state===STATES.RUNNING?'active':''}">${t.id.split('-')[1]}</div>`).join('')}</div>
+    </div>
+    <div style="text-align:center;font-size:16px;color:var(--gray);margin:4px 0 4px 70px;">↓</div>
+    <div class="diagram-row">
+      <span class="diagram-label">KERNEL</span>
+      <div class="diagram-nodes"><div class="d-node d-kernel ${active.some(t=>t.state===STATES.RUNNING)?'active':''}">KT0</div></div>
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--text2)">⚠ Only 1 thread runs at a time — no true parallelism</div>`;
+  }
+  else if(currentModel === 'one-to-one') {
+    html = `
+    <div style="font-size:11px;color:var(--text2);margin-bottom:10px;letter-spacing:1px;">EACH USER THREAD → OWN KERNEL THREAD</div>
+    <div class="diagram-row">
+      <span class="diagram-label">USER</span>
+      <div class="diagram-nodes">${active.map(t => `<div class="d-node d-user ${t.state===STATES.RUNNING?'active':''}">${t.id.split('-')[1]}</div>`).join('')}</div>
+    </div>
+    <div style="font-size:16px;color:var(--gray);margin:4px 0 4px 70px;">${active.map(()=>'↓').join('  ')}</div>
+    <div class="diagram-row">
+      <span class="diagram-label">KERNEL</span>
+      <div class="diagram-nodes">${kernelThreads.map((kt,i) => `<div class="d-node d-kernel ${active[i]&&active[i].state===STATES.RUNNING?'active':''}">${i}</div>`).join('')}</div>
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--green)">✓ True parallelism — each thread has its own kernel thread</div>`;
+  }
+  else {
+    html = `
+    <div style="font-size:11px;color:var(--text2);margin-bottom:10px;letter-spacing:1px;">MANY USER THREADS → POOL OF KERNEL THREADS</div>
+    <div class="diagram-row">
+      <span class="diagram-label">USER</span>
+      <div class="diagram-nodes">${active.map(t => `<div class="d-node d-user ${t.state===STATES.RUNNING?'active':''}">${t.id.split('-')[1]}</div>`).join('')}</div>
+    </div>
+    <div style="text-align:center;font-size:12px;color:var(--gray);margin:4px 0 4px 70px;">⤵ scheduler ⤵</div>
+    <div class="diagram-row">
+      <span class="diagram-label">KERNEL</span>
+      <div class="diagram-nodes">${kernelThreads.map((kt,i) => `<div class="d-node d-kernel ${kt.mapped?'active':''}">K${i}</div>`).join('')}</div>
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--accent)">⚡ Balanced — ${kernelThreads.length} kernel threads serve many user threads</div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+// ===== LOG =====
+function log(msg, type='') {
+  const area = document.getElementById('logArea');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-time">[${String(tick).padStart(4,'0')}]</span><span class="log-msg ${type}">${msg}</span>`;
+  area.appendChild(entry);
+  area.scrollTop = area.scrollHeight;
+  if(area.children.length > 80) area.removeChild(area.firstChild);
+}
+
+// ===== CONTROLS =====
+function togglePause() {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+  log(paused ? 'Simulation PAUSED' : 'Simulation RESUMED', 'info');
+}
+
+function setSpeed(val) {
+  speed = parseInt(val);
+  document.getElementById('speedLabel').textContent = `${speed}x`;
+  clearInterval(simulationInterval);
+  simulationInterval = setInterval(schedulerTick, Math.max(200, 1000 / speed));
+}
+
+// ===== INIT =====
+setupModel('many-to-one');
+renderAll();
+log('ThreadSim initialized. Add threads to begin simulation.', 'info');
+simulationInterval = setInterval(schedulerTick, 500);
+
+// Auto-add 3 starter threads
+setTimeout(() => { addThread(); addThread(); addThread(); }, 500);
+</script>
+</body>
+</html>

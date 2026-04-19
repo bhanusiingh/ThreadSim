@@ -638,6 +638,9 @@
     <span><span class="status-dot"></span>LIVE</span>
     <span>TICK <span class="tick-val" id="tickDisplay">0</span></span>
     <span>CPU <span class="tick-val" id="cpuUtil">0%</span></span>
+    <span style="border-left:1px solid var(--border);padding-left:20px;">Scheduling: <span class="tick-val" style="color:var(--yellow);">Round Robin</span></span>
+    <span>Quantum: <span class="tick-val" style="color:var(--yellow);">3</span></span>
+    <span>Cores: <span class="tick-val" id="coreCount" style="color:var(--accent2);">1</span></span>
   </div>
 </header>
 
@@ -711,7 +714,14 @@
     <div class="panel-title">Controls</div>
 
     <div class="controls-row">
-      <button class="btn btn-primary" onclick="addThread()">+ Add Thread</button>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <div style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;display:flex;align-items:center;gap:6px;">
+          <span style="font-size:10px;color:var(--text2);white-space:nowrap;">Threads:</span>
+          <input type="number" id="threadCountInput" min="1" max="10" value="1"
+            style="width:100%;background:transparent;border:none;outline:none;color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;">
+        </div>
+        <button class="btn btn-primary" style="white-space:nowrap;" onclick="addMultipleThreads()">+ Create</button>
+      </div>
       <button class="btn btn-danger" onclick="killRandomThread()">✕ Kill Thread</button>
       <button class="btn btn-warning" onclick="blockRandomThread()">⏸ Block Thread</button>
       <button class="btn btn-green" onclick="unblockAll()">▶ Unblock All</button>
@@ -735,7 +745,10 @@
 
       <div class="semaphore-card">
         <div class="sem-header">
-          <span class="sem-name">sem_resource_A</span>
+          <div>
+            <span class="sem-name">sem_resource_A</span>
+            <div style="font-size:9px;color:var(--text2);letter-spacing:1px;margin-top:2px;">🗄 Resource: <span style="color:var(--yellow);">Database</span></div>
+          </div>
           <span class="sem-count" id="semACount">2</span>
         </div>
         <div style="font-size:10px;color:var(--text2);margin-bottom:6px;">Max permits: 2</div>
@@ -749,7 +762,10 @@
 
       <div class="semaphore-card">
         <div class="sem-header">
-          <span class="sem-name">sem_resource_B</span>
+          <div>
+            <span class="sem-name">sem_resource_B</span>
+            <div style="font-size:9px;color:var(--text2);letter-spacing:1px;margin-top:2px;">📁 Resource: <span style="color:var(--yellow);">File System</span></div>
+          </div>
           <span class="sem-count" id="semBCount">1</span>
         </div>
         <div style="font-size:10px;color:var(--text2);margin-bottom:6px;">Max permits: 1 (mutex)</div>
@@ -875,7 +891,15 @@ function createThread() {
   return t;
 }
 
-function addThread() {
+function addMultipleThreads() {
+  const input = document.getElementById('threadCountInput');
+  const count = Math.min(10, Math.max(1, parseInt(input.value) || 1));
+  for(let i = 0; i < count; i++) {
+    setTimeout(() => addThread(), i * 120);
+  }
+}
+
+
   const t = createThread();
   threads.push(t);
   timeline[t.id] = [];
@@ -1094,6 +1118,14 @@ function updateKernelMapping() {
 
 // ===== RENDERING =====
 
+function updateCoreCount() {
+  const cores = currentModel === 'many-to-one' ? 1
+              : currentModel === 'one-to-one' ? Math.max(kernelThreads.length, 1)
+              : kernelThreads.length;
+  const el = document.getElementById('coreCount');
+  if(el) el.textContent = cores;
+}
+
 function renderAll() {
   renderThreadList();
   renderKernelThreads();
@@ -1102,6 +1134,7 @@ function renderAll() {
   renderStats();
   renderTimeline();
   renderModelDiagram();
+  updateCoreCount();
   document.getElementById('tickDisplay').textContent = tick;
 
   const running = threads.filter(t => t.state === STATES.RUNNING).length;
